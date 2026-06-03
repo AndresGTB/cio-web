@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    font-feature-settings: normal;
+  }
+
+  body {
+    @apply bg-brand-alice-blue font-sans text-brand-black antialiased;
+    font-weight: 300;
+  }
+
+  /* Scrollbar personalizado */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-brand-alice-blue dark:bg-brand-dark-blue;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-brand-blue-gray/30 dark:bg-white/20;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-brand-blue-gray/50 dark:bg-white/30;
+  }
+}
+
+@layer utilities {
+  /* Focus ring accesible WCAG */
+  .focus-ring {
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue focus-visible:ring-offset-2 dark:focus-visible:ring-[#3335FC];
+  }
+}
