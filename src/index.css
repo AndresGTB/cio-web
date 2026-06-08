@@ -17,6 +17,10 @@
     font-weight: 300;
   }
 
+  .dark body {
+    @apply bg-brand-dark-blue text-white;
+  }
+
   /* Scrollbar personalizado */
   ::-webkit-scrollbar {
     width: 6px;

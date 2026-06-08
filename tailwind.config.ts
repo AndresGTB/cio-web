@@ -47,10 +47,30 @@ export default {
           from: { opacity: '0', transform: 'translateX(-8px)' },
           to: { opacity: '1', transform: 'translateX(0)' },
         },
+        'row-in': {
+          from: { opacity: '0', transform: 'translateY(6px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'kpi-in': {
+          from: { opacity: '0', transform: 'translateY(10px) scale(0.97)' },
+          to: { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        'bar-in': {
+          from: { transform: 'scaleX(0)' },
+          to: { transform: 'scaleX(1)' },
+        },
+        'dot-pulse': {
+          '0%, 100%': { opacity: '1', transform: 'scale(1)' },
+          '50%': { opacity: '0.5', transform: 'scale(0.75)' },
+        },
       },
       animation: {
-        'fade-in': 'fade-in 0.4s ease-out',
-        'slide-in': 'slide-in 0.4s ease-out',
+        'fade-in': 'fade-in 0.35s cubic-bezier(0,0,0.2,1) both',
+        'slide-in': 'slide-in 0.35s cubic-bezier(0,0,0.2,1) both',
+        'row-in': 'row-in 0.3s cubic-bezier(0,0,0.2,1) both',
+        'kpi-in': 'kpi-in 0.4s cubic-bezier(0,0,0.2,1) both',
+        'bar-in': 'bar-in 0.7s cubic-bezier(0,0,0.2,1) both',
+        'dot-pulse': 'dot-pulse 2s ease-in-out infinite',
       },
     },
   },

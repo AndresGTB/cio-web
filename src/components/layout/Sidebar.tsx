@@ -10,6 +10,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Box,
+  Container,
+  Zap,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -24,7 +27,10 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Monitor de Negocios', to: '/monitor', icon: BarChart3 },
   { label: 'Reservas', to: '/reservas', icon: Package },
   { label: 'Inventario', to: '/inventario', icon: Box },
+  { label: 'Fact. Reserva', to: '/facturas-reserva', icon: Container },
   { label: 'Compras', to: '/compras', icon: ShoppingCart },
+  { label: 'Motor ATP', to: '/atp', icon: Zap },
+  { label: 'Clientes', to: '/clientes', icon: Users },
   { label: 'Importaciones', to: '/importaciones', icon: Ship },
   { label: 'Facturación', to: '/facturacion', icon: Receipt },
   { label: 'Configuración', to: '/configuracion', icon: Settings },

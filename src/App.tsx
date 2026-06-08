@@ -13,6 +13,10 @@ const Reservas = lazy(() => import('@/pages/Reservas'))
 const Compras = lazy(() => import('@/pages/Compras'))
 const Configuracion = lazy(() => import('@/pages/Configuracion'))
 const InventarioStock = lazy(() => import('@/pages/InventarioStock'))
+const FacturasReserva = lazy(() => import('@/pages/FacturasReserva'))
+const MotorATP = lazy(() => import('@/pages/MotorATP'))
+const ClientesVIP = lazy(() => import('@/pages/ClientesVIP'))
+const Facturacion = lazy(() => import('@/pages/Facturacion'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,8 +52,11 @@ export default function App() {
                 <Route path="reservas" element={<Reservas />} />
                 <Route path="compras" element={<Compras />} />
                 <Route path="inventario" element={<InventarioStock />} />
+                <Route path="facturas-reserva" element={<FacturasReserva />} />
+                <Route path="atp" element={<MotorATP />} />
+                <Route path="clientes" element={<ClientesVIP />} />
                 <Route path="importaciones" element={<PlaceholderPage nombre="Importaciones" />} />
-                <Route path="facturacion" element={<PlaceholderPage nombre="Facturación" />} />
+                <Route path="facturacion" element={<Facturacion />} />
                 <Route path="configuracion" element={<Configuracion />} />
               </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />

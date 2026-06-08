@@ -67,6 +67,7 @@ export function TopBar({ usuario, darkMode, onToggleDark, onLogout, titulo }: Pr
           aria-label="Cerrar sesión"
           className={cn(
             'flex h-8 w-8 items-center justify-center rounded-[8px] text-brand-blue-gray transition-all duration-400 ease-out',
+            'dark:text-white/60',
             'hover:bg-semantic-error/10 hover:text-semantic-error',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-semantic-error focus-visible:ring-offset-2'
           )}

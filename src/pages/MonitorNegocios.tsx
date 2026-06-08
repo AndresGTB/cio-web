@@ -11,13 +11,24 @@ import {
   CheckCircle,
   Clock,
   Package,
+  Activity,
+  Warehouse,
+  FileText,
+  Layers,
+  BadgeCheck,
+  PackageCheck,
+  Calendar,
+  Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Select, MultiSelect } from '@/components/shared/Select'
 import { formatFecha, formatDecimal } from '@/lib/utils'
 import { useLineasPendientes, useResumenDashboard } from '@/hooks/useOrdenes'
 import { useDebounce } from '@/hooks/useDebounce'
-import { dispararSync, sincronizarLinea } from '@/api/sap'
+import { sincronizarLinea } from '@/api/sap'
 import type { EstadoLinea, TipoFacturacion, LineaOVDetallada } from '@/types'
+
+type EstadoFiltro = EstadoLinea | 'PENALIZADA'
 import DetalleLinea, { CoberturaBar } from '@/pages/DetalleLinea'
 
 // ------------------------------------------------------------------ //
@@ -47,6 +58,10 @@ const ESTADO_CONFIG: Record<
   CUBIERTA: {
     label: 'Cubierta',
     className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  },
+  CERRADA: {
+    label: 'Cerrada',
+    className: 'bg-gray-100 text-gray-500 dark:bg-white/5 dark:text-white/30',
   },
 }
 
@@ -88,7 +103,7 @@ function clasificarFecha(fechaISO: string | null): 'vencida' | 'urgente' | 'norm
   return 'normal'
 }
 
-function FechaCell({ fecha }: { fecha: string | null }) {
+function FechaCell({ fecha, estaAbierta = true }: { fecha: string | null; estaAbierta?: boolean }) {
   const clase = clasificarFecha(fecha)
   const estilos = {
     vencida: 'text-semantic-error font-semibold',
@@ -99,7 +114,7 @@ function FechaCell({ fecha }: { fecha: string | null }) {
   return (
     <span className={cn('text-[13px]', estilos[clase])}>
       {fecha ? formatFecha(fecha) : '—'}
-      {clase === 'vencida' && (
+      {clase === 'vencida' && estaAbierta && (
         <span className="ml-1 text-[11px]">(vencida)</span>
       )}
     </span>
@@ -113,7 +128,7 @@ function FechaCell({ fecha }: { fecha: string | null }) {
 function SkeletonRow() {
   return (
     <tr>
-      {Array.from({ length: 9 }).map((_, i) => (
+      {Array.from({ length: 14 }).map((_, i) => (
         <td key={i} className="px-4 py-3">
           <div className="h-4 animate-pulse rounded bg-brand-alice-blue dark:bg-white/10" />
         </td>
@@ -213,12 +228,14 @@ function MetricaCard({ label, valor, icon: Icon, color, loading }: MetricaProps)
 // ------------------------------------------------------------------ //
 
 export default function MonitorNegocios() {
-  const queryClient = useQueryClient()
-
   // Estado de filtros
   const [busqueda, setBusqueda] = useState('')
-  const [estado, setEstado] = useState<EstadoLinea | ''>('')
+  const [estados, setEstados] = useState<EstadoFiltro[]>([])
   const [bodega, setBodega] = useState('')
+  const [vencimiento, setVencimiento] = useState<'vigentes' | 'vencidas' | ''>('')
+  const [estadoAtp, setEstadoAtp] = useState('')
+  const [fechaDesde, setFechaDesde] = useState('')
+  const [fechaHasta, setFechaHasta] = useState('')
   const [pagina, setPagina] = useState(1)
   const [toastEstado, setToastEstado] = useState<'syncing' | 'ok' | 'error' | null>(null)
   const [lineaDetalle, setLineaDetalle] = useState<LineaOVDetallada | null>(null)
@@ -226,10 +243,17 @@ export default function MonitorNegocios() {
   const busquedaDebounced = useDebounce(busqueda, 300)
 
   // Queries
+  const estadosReales = estados.filter(e => e !== 'PENALIZADA') as EstadoLinea[]
+  const filtroPenalizada = estados.includes('PENALIZADA')
   const filtros = {
-    ...(estado && { estado }),
+    ...(estadosReales.length > 0 && { estado: estadosReales.join(',') }),
+    ...(filtroPenalizada && { penalizada: 'true' as const }),
     ...(bodega && { bodega }),
     ...(busquedaDebounced && { search: busquedaDebounced }),
+    ...(vencimiento && { vencimiento }),
+    ...(estadoAtp && { estado_atp: estadoAtp }),
+    ...(fechaDesde && { fecha_desde: fechaDesde }),
+    ...(fechaHasta && { fecha_hasta: fechaHasta }),
     page: pagina,
     page_size: 50,
   }
@@ -237,39 +261,20 @@ export default function MonitorNegocios() {
   const { data: lineas, isLoading: cargandoLineas } = useLineasPendientes(filtros)
   const { data: resumen, isLoading: cargandoResumen } = useResumenDashboard()
 
-  // Mutación de sincronización
-  const syncMutation = useMutation({
-    mutationFn: dispararSync,
-    onMutate: () => setToastEstado('syncing'),
-    onSuccess: () => {
-      setToastEstado('ok')
-      queryClient.invalidateQueries({ queryKey: ['lineas-pendientes'] })
-      queryClient.invalidateQueries({ queryKey: ['resumen-dashboard'] })
-      setTimeout(() => setToastEstado(null), 4000)
-    },
-    onError: () => {
-      setToastEstado('error')
-      setTimeout(() => setToastEstado(null), 5000)
-    },
-  })
-
   const limpiarFiltros = useCallback(() => {
     setBusqueda('')
-    setEstado('')
+    setEstados([])
     setBodega('')
+    setVencimiento('')
+    setEstadoAtp('')
+    setFechaDesde('')
+    setFechaHasta('')
     setPagina(1)
   }, [])
 
-  const hayFiltros = busqueda || estado || bodega
+  const hayFiltros = busqueda || estados.length > 0 || bodega || vencimiento || estadoAtp || fechaDesde || fechaHasta
 
   const totalPaginas = lineas ? Math.ceil(lineas.count / 50) : 0
-
-  const formatearMoneda = (valor: number) =>
-    new Intl.NumberFormat('es-CL', {
-      style: 'currency',
-      currency: 'CLP',
-      maximumFractionDigits: 0,
-    }).format(valor)
 
   return (
     <div className="flex flex-col gap-6">
@@ -278,7 +283,7 @@ export default function MonitorNegocios() {
         <SyncToast estado={toastEstado} onClose={() => setToastEstado(null)} />
       )}
 
-      {/* Sheet de detalle */}
+      {/* Panel de detalle */}
       <DetalleLinea linea={lineaDetalle} onClose={() => setLineaDetalle(null)} />
 
       {/* Header */}
@@ -288,7 +293,7 @@ export default function MonitorNegocios() {
             Monitor de Negocios
           </h2>
           <p className="mt-1 text-[14px] font-light text-brand-blue-gray dark:text-white/50">
-            Líneas de OV pendientes de despacho — sincronizadas desde SAP Business One
+            Todas las líneas de OV sincronizadas desde SAP Business One
             {resumen?.ultimo_sync && (
               <span className="ml-2 text-[12px]">
                 · Último sync: {formatFecha(resumen.ultimo_sync)}
@@ -297,39 +302,21 @@ export default function MonitorNegocios() {
           </p>
         </div>
 
-        <button
-          onClick={() => syncMutation.mutate({})}
-          disabled={syncMutation.isPending}
-          className={cn(
-            'flex h-10 shrink-0 items-center gap-2 rounded-[10px] px-4 text-[14px] font-semibold text-white',
-            'bg-brand-black transition-all duration-400 ease-out',
-            'hover:bg-brand-blue-gray active:scale-[0.98]',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue focus-visible:ring-offset-2',
-            'disabled:cursor-not-allowed disabled:opacity-50'
-          )}
-        >
-          <RefreshCw
-            size={16}
-            strokeWidth={2}
-            className={syncMutation.isPending ? 'animate-spin' : ''}
-          />
-          Sincronizar SAP
-        </button>
       </div>
 
       {/* Métricas */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <MetricaCard
-          label="Total Pendientes"
-          valor={resumen?.total_lineas_abiertas ?? 0}
-          icon={Package}
-          color="bg-brand-blue/10 text-brand-blue"
+          label="Total OV"
+          valor={resumen?.total_ov ?? 0}
+          icon={FileText}
+          color="bg-brand-blue/10 text-brand-blue dark:bg-blue-400/10 dark:text-blue-400"
           loading={cargandoResumen}
         />
         <MetricaCard
-          label="Sin Planificación"
-          valor={resumen?.lineas_sin_planificacion ?? 0}
-          icon={Clock}
+          label="Total Líneas"
+          valor={resumen?.total_lineas ?? 0}
+          icon={Layers}
           color="bg-brand-alice-blue text-brand-steel-blue dark:bg-white/10 dark:text-white/50"
           loading={cargandoResumen}
         />
@@ -341,121 +328,179 @@ export default function MonitorNegocios() {
           loading={cargandoResumen}
         />
         <MetricaCard
+          label="Sin Planificación"
+          valor={resumen?.lineas_sin_planificacion ?? 0}
+          icon={Clock}
+          color="bg-brand-alice-blue text-brand-steel-blue dark:bg-white/10 dark:text-white/50"
+          loading={cargandoResumen}
+        />
+        <MetricaCard
           label="Parcialmente Cubiertas"
           valor={resumen?.lineas_parciales ?? 0}
           icon={CheckCircle}
-          color="bg-brand-blue/10 text-brand-blue"
+          color="bg-brand-blue/10 text-brand-blue dark:bg-blue-400/10 dark:text-blue-400"
           loading={cargandoResumen}
         />
-        <div className="col-span-2 flex items-center gap-4 rounded-[16px] border border-brand-alice-blue bg-white p-4 dark:border-white/10 dark:bg-brand-dark-blue lg:col-span-1">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wider text-brand-blue-gray dark:text-white/50">
-              Valor Pendiente
-            </p>
-            {cargandoResumen ? (
-              <div className="mt-1 h-6 w-24 animate-pulse rounded bg-brand-alice-blue dark:bg-white/10" />
-            ) : (
-              <p className="text-[16px] font-semibold leading-tight text-brand-black dark:text-white">
-                {formatearMoneda(resumen?.total_open_qty_valor ?? 0)}
-              </p>
-            )}
-          </div>
-        </div>
+        <MetricaCard
+          label="Total Cubiertas"
+          valor={resumen?.lineas_cubiertas ?? 0}
+          icon={BadgeCheck}
+          color="bg-semantic-success/10 text-semantic-success"
+          loading={cargandoResumen}
+        />
+        <MetricaCard
+          label="Despacho Completo"
+          valor={resumen?.lineas_cerradas ?? 0}
+          icon={PackageCheck}
+          color="bg-brand-alice-blue text-brand-steel-blue dark:bg-white/10 dark:text-white/50"
+          loading={cargandoResumen}
+        />
       </div>
 
       {/* Barra de filtros */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Búsqueda */}
-        <div className="relative flex-1 min-w-[200px]">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-steel-blue"
-            strokeWidth={1.5}
-          />
-          <input
-            type="text"
-            placeholder="Buscar OV, SKU, cliente, descripción..."
-            value={busqueda}
-            onChange={(e) => { setBusqueda(e.target.value); setPagina(1) }}
-            className={cn(
-              'h-10 w-full rounded-[10px] border border-brand-alice-blue pl-9 pr-4',
-              'text-[14px] font-light text-brand-black outline-none',
-              'bg-white dark:border-white/10 dark:bg-brand-dark-blue dark:text-white',
-              'transition-all duration-400 focus:border-[#73B8EF]',
-              'placeholder:text-brand-steel-blue/60'
-            )}
-          />
-        </div>
+        {(() => {
+          const modoOV = busqueda.toUpperCase().startsWith('OV')
+          return (
+            <div className="relative flex-1 min-w-[200px]">
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-steel-blue"
+                strokeWidth={1.5}
+              />
+              <input
+                type="text"
+                placeholder={modoOV ? 'Escribe el número de OV...' : 'Buscar OV, SKU, cliente, descripción...'}
+                value={busqueda}
+                onChange={(e) => { setBusqueda(e.target.value); setPagina(1) }}
+                className={cn(
+                  'h-10 w-full rounded-[10px] border pl-9 outline-none',
+                  'text-[14px] font-light text-brand-black',
+                  'bg-white dark:bg-brand-dark-blue dark:text-white',
+                  'transition-all duration-400',
+                  'placeholder:text-brand-steel-blue/60',
+                  modoOV
+                    ? 'border-brand-blue/40 pr-14 dark:border-blue-400/40'
+                    : 'border-brand-alice-blue pr-4 focus:border-[#73B8EF] dark:border-white/10'
+                )}
+              />
+              {modoOV && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-[5px] bg-brand-blue/10 px-1.5 py-0.5 text-[11px] font-semibold text-brand-blue dark:bg-blue-400/10 dark:text-blue-400">
+                  OV
+                </span>
+              )}
+            </div>
+          )
+        })()}
 
-        {/* Filtro estado */}
-        <select
-          value={estado}
-          onChange={(e) => { setEstado(e.target.value as EstadoLinea | ''); setPagina(1) }}
-          className={cn(
-            'h-10 rounded-[10px] border border-brand-alice-blue px-3 text-[14px] font-light',
-            'bg-white text-brand-black outline-none',
-            'dark:border-white/10 dark:bg-brand-dark-blue dark:text-white',
-            'transition-all duration-400 focus:border-[#73B8EF]'
-          )}
-        >
-          <option value="">Todos los estados</option>
-          <option value="SIN_PLANIFICACION">Sin planificación</option>
-          <option value="PARCIAL">Parcial</option>
-          <option value="RIESGO">En riesgo</option>
-          <option value="ABIERTA">Abierta</option>
-        </select>
+        {/* Filtro estado (múltiple) */}
+        <MultiSelect
+          value={estados}
+          onChange={(v) => { setEstados(v as EstadoFiltro[]); setPagina(1) }}
+          triggerIcon={<Activity size={13} strokeWidth={1.5} />}
+          placeholder="Todos los estados"
+          options={[
+            { value: 'SIN_PLANIFICACION', label: 'Sin planificación', dot: '#94a3b8' },
+            { value: 'PARCIAL',           label: 'Parcial',           dot: '#3b82f6' },
+            { value: 'CUBIERTA',          label: 'Cubierta',          dot: '#22c55e' },
+            { value: 'CERRADA',           label: 'Cerrada',           dot: '#6b7280' },
+            { value: 'PENALIZADA',        label: 'Penalizadas',       dot: '#f97316' },
+          ]}
+        />
 
         {/* Filtro bodega */}
-        <select
+        <Select
           value={bodega}
-          onChange={(e) => { setBodega(e.target.value); setPagina(1) }}
+          onChange={(v) => { setBodega(v); setPagina(1) }}
+          triggerIcon={<Warehouse size={13} strokeWidth={1.5} />}
+          options={[
+            { value: '', label: 'Todas las bodegas' },
+            ...(resumen?.bodegas?.map(b => ({ value: b, label: b })) ?? []),
+          ]}
+        />
+
+        {/* Filtro vencimiento */}
+        <Select
+          value={vencimiento}
+          onChange={(v) => { setVencimiento(v as 'vigentes' | 'vencidas' | ''); setPagina(1) }}
+          triggerIcon={<Calendar size={13} strokeWidth={1.5} />}
+          options={[
+            { value: '',         label: 'Todos los vencimientos' },
+            { value: 'vigentes', label: 'Vigentes',               dot: '#22c55e' },
+            { value: 'vencidas', label: 'Vencidas',               dot: '#E5031F' },
+          ]}
+        />
+
+        {/* Filtro ATP */}
+        <Select
+          value={estadoAtp}
+          onChange={(v) => { setEstadoAtp(v); setPagina(1) }}
+          triggerIcon={<Zap size={13} strokeWidth={1.5} />}
+          options={[
+            { value: '',               label: 'Todos (ATP)' },
+            { value: 'COMPRAR_YA',     label: 'Comprar ya',     dot: '#E5031F' },
+            { value: 'COMPRAR_PRONTO', label: 'Comprar pronto', dot: '#F1A828' },
+            { value: 'EN_RIESGO',      label: 'En riesgo',      dot: '#f59e0b' },
+            { value: 'A_TIEMPO',       label: 'A tiempo',       dot: '#22c55e' },
+            { value: 'NO_COMPRAR_AUN', label: 'No comprar aún', dot: '#3b82f6' },
+            { value: 'SIN_COBERTURA',  label: 'Sin cobertura',  dot: '#94a3b8' },
+            { value: 'SIN_FECHA',      label: 'Sin fecha',      dot: '#94a3b8' },
+          ]}
+        />
+
+        {/* Filtro fechas compromiso */}
+        <div className="flex items-stretch divide-x divide-brand-alice-blue overflow-hidden rounded-[10px] border border-brand-alice-blue bg-white dark:divide-white/10 dark:border-white/10 dark:bg-brand-dark-blue">
+          <div className="flex items-center gap-2 px-3">
+            <Calendar size={13} strokeWidth={1.5} className="shrink-0 text-brand-steel-blue" />
+            <span className="text-[12px] text-brand-blue-gray dark:text-white/40">Desde</span>
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => { setFechaDesde(e.target.value); setPagina(1) }}
+              className="h-10 bg-transparent text-[13px] font-light text-brand-black outline-none dark:text-white dark:[color-scheme:dark]"
+            />
+          </div>
+          <div className="flex items-center gap-2 px-3">
+            <span className="text-[12px] text-brand-blue-gray dark:text-white/40">Hasta</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => { setFechaHasta(e.target.value); setPagina(1) }}
+              className="h-10 bg-transparent text-[13px] font-light text-brand-black outline-none dark:text-white dark:[color-scheme:dark]"
+            />
+          </div>
+        </div>
+
+        {/* Limpiar filtros — siempre visible */}
+        <button
+          onClick={limpiarFiltros}
+          disabled={!hayFiltros}
           className={cn(
-            'h-10 rounded-[10px] border border-brand-alice-blue px-3 text-[14px] font-light',
-            'bg-white text-brand-black outline-none',
-            'dark:border-white/10 dark:bg-brand-dark-blue dark:text-white',
-            'transition-all duration-400 focus:border-[#73B8EF]'
+            'flex h-10 items-center gap-1.5 rounded-[10px] border border-brand-alice-blue px-3',
+            'text-[13px] font-medium text-brand-blue-gray',
+            'bg-white dark:border-white/10 dark:bg-brand-dark-blue dark:text-white/50',
+            'transition-all duration-400',
+            'hover:border-semantic-error/40 hover:text-semantic-error',
+            'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-brand-alice-blue disabled:hover:text-brand-blue-gray dark:disabled:hover:border-white/10 dark:disabled:hover:text-white/50',
           )}
         >
-          <option value="">Todas las bodegas</option>
-          {resumen?.bodegas?.map((b) => (
-            <option key={b} value={b}>{b}</option>
-          ))}
-        </select>
-
-        {/* Limpiar filtros */}
-        {hayFiltros && (
-          <button
-            onClick={limpiarFiltros}
-            className={cn(
-              'flex h-10 items-center gap-1.5 rounded-[10px] border border-brand-alice-blue px-3',
-              'text-[13px] font-medium text-brand-blue-gray',
-              'bg-white dark:border-white/10 dark:bg-brand-dark-blue dark:text-white/50',
-              'transition-all duration-400 hover:border-semantic-error/40 hover:text-semantic-error',
-            )}
-          >
-            <X size={14} />
-            Limpiar
-          </button>
-        )}
-
-        {/* Contador */}
-        {!cargandoLineas && lineas && (
-          <span className="ml-auto text-[13px] font-light text-brand-blue-gray dark:text-white/40">
-            {lineas.count.toLocaleString('es-CL')} líneas
-          </span>
-        )}
+          <X size={14} />
+          Limpiar
+        </button>
       </div>
 
       {/* Tabla */}
       <div className="overflow-hidden rounded-[16px] border border-brand-alice-blue bg-white dark:border-white/10 dark:bg-brand-dark-blue">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] border-collapse text-left text-[13px]">
+          <table className="w-full min-w-[1400px] border-collapse text-left text-[13px]">
             <thead>
               <tr className="border-b border-brand-alice-blue dark:border-white/10">
                 {[
-                  'N° OV', 'Cliente', 'SKU / Descripción', 'Bodega',
+                  'N° OV', 'Cliente', 'F. Creación', 'Operador',
+                  'SKU / Descripción', 'Bodega',
                   'Pendiente / Cobertura', 'Precio Unit.', 'F. Compromiso',
-                  'Facturación', 'Estado', ''
+                  'F. Probable', 'Despacho', 'Facturación', 'Estado', ''
                 ].map((h) => (
                   <th
                     key={h}
@@ -473,13 +518,13 @@ export default function MonitorNegocios() {
 
               {!cargandoLineas && lineas?.results.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-16 text-center text-brand-blue-gray dark:text-white/40">
+                  <td colSpan={14} className="py-16 text-center text-brand-blue-gray dark:text-white/40">
                     <Package size={40} strokeWidth={1} className="mx-auto mb-3 opacity-40" />
-                    <p className="text-[16px] font-medium">Sin líneas pendientes</p>
+                    <p className="text-[16px] font-medium">Sin líneas</p>
                     <p className="mt-1 text-[13px] font-light">
                       {hayFiltros
                         ? 'Ninguna línea coincide con los filtros actuales'
-                        : 'Sincroniza con SAP para ver las líneas pendientes'}
+                        : 'Sincroniza con SAP para importar las líneas de OV'}
                     </p>
                   </td>
                 </tr>
@@ -595,8 +640,18 @@ function LineasRow({ linea, onVerDetalle }: { linea: LineaOVDetallada; onVerDeta
   return (
     <tr className="border-b border-brand-alice-blue/50 transition-colors duration-200 hover:bg-brand-alice-blue/30 dark:border-white/5 dark:hover:bg-white/5">
       <td className="px-4 py-3">
-        <span className="font-medium text-brand-black dark:text-white">{linea.numero_ov}</span>
-        <br />
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-medium text-brand-black dark:text-white">{linea.numero_ov}</span>
+          {linea.prioridad_penalizada && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded-[5px] bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-600 dark:bg-orange-500/15 dark:text-orange-400"
+              title={`Esta línea fue liberada ${linea.contador_liberaciones} ${linea.contador_liberaciones === 1 ? 'vez' : 'veces'} — prioridad FIFO al final`}
+            >
+              <AlertTriangle size={9} strokeWidth={2.5} />
+              Penalizada
+            </span>
+          )}
+        </div>
         <span className="text-[11px] text-brand-steel-blue dark:text-white/40">
           Línea {linea.numero_linea}
         </span>
@@ -606,6 +661,18 @@ function LineasRow({ linea, onVerDetalle }: { linea: LineaOVDetallada; onVerDeta
         <span className="text-brand-black dark:text-white">{linea.cliente_nombre}</span>
         <br />
         <span className="text-[11px] text-brand-steel-blue dark:text-white/40">{linea.cliente_id}</span>
+      </td>
+
+      <td className="px-4 py-3 whitespace-nowrap">
+        <span className="text-[13px] text-brand-black dark:text-white">
+          {linea.fecha_documento_ov ? formatFecha(linea.fecha_documento_ov) : '—'}
+        </span>
+      </td>
+
+      <td className="px-4 py-3">
+        <span className="text-[13px] text-brand-black dark:text-white">
+          {linea.operador_ov || '—'}
+        </span>
       </td>
 
       <td className="px-4 py-3 max-w-[200px]">
@@ -638,6 +705,7 @@ function LineasRow({ linea, onVerDetalle }: { linea: LineaOVDetallada; onVerDeta
           <CoberturaBar
             openQty={Number(linea.open_qty_sap ?? linea.cantidad_pendiente ?? 0)}
             qtyBodega={Number(linea.qty_bodega ?? 0)}
+            qtyFacturaReserva={Number(linea.qty_factura_reserva ?? 0)}
             qtyTransito={Number(linea.qty_transito ?? 0)}
             qtyPendiente={Number(linea.qty_pendiente_compra ?? 0)}
             unidad={linea.unidad}
@@ -656,7 +724,27 @@ function LineasRow({ linea, onVerDetalle }: { linea: LineaOVDetallada; onVerDeta
       </td>
 
       <td className="px-4 py-3">
-        <FechaCell fecha={fechaEfectiva} />
+        <FechaCell fecha={fechaEfectiva} estaAbierta={linea.estado !== 'CERRADA'} />
+      </td>
+
+      <td className="px-4 py-3">
+        <span className="text-[13px] text-brand-black dark:text-white">
+          {linea.fecha_probable ? formatFecha(linea.fecha_probable) : '—'}
+        </span>
+      </td>
+
+      <td className="px-4 py-3">
+        {linea.despacho_a_tiempo === null || linea.despacho_a_tiempo === undefined ? (
+          <span className="text-[13px] text-brand-blue-gray dark:text-white/40">—</span>
+        ) : linea.despacho_a_tiempo ? (
+          <span className="inline-flex items-center rounded-pill bg-semantic-success/10 px-2.5 py-0.5 text-[12px] font-medium text-semantic-success">
+            A tiempo
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-pill bg-semantic-error/10 px-2.5 py-0.5 text-[12px] font-medium text-semantic-error">
+            Con retraso
+          </span>
+        )}
       </td>
 
       <td className="px-4 py-3">
@@ -672,14 +760,36 @@ function LineasRow({ linea, onVerDetalle }: { linea: LineaOVDetallada; onVerDeta
       </td>
 
       <td className="px-4 py-3">
-        <span
-          className={cn(
-            'inline-flex items-center rounded-pill px-2.5 py-0.5 text-[12px] font-medium',
-            estado.className
+        <div className="flex flex-col gap-1">
+          <span
+            className={cn(
+              'inline-flex items-center rounded-pill px-2.5 py-0.5 text-[12px] font-medium',
+              estado.className
+            )}
+          >
+            {estado.label}
+          </span>
+          {linea.estado_atp && (
+            <span className={cn(
+              'inline-flex items-center rounded-pill px-2 py-0.5 text-[11px] font-medium',
+              linea.estado_atp === 'A_TIEMPO'       && 'bg-semantic-success/10 text-semantic-success',
+              linea.estado_atp === 'EN_RIESGO'      && 'bg-semantic-warning/10 text-semantic-warning',
+              linea.estado_atp === 'COMPRAR_YA'     && 'bg-semantic-error/10 text-semantic-error',
+              linea.estado_atp === 'COMPRAR_PRONTO' && 'bg-[#F1A828]/10 text-[#F1A828]',
+              linea.estado_atp === 'NO_COMPRAR_AUN' && 'bg-brand-blue/10 text-brand-blue dark:text-blue-400',
+              (linea.estado_atp === 'SIN_COBERTURA' || linea.estado_atp === 'SIN_FECHA') &&
+                'bg-brand-alice-blue text-brand-steel-blue dark:bg-white/5 dark:text-white/40',
+            )}>
+              {linea.estado_atp === 'A_TIEMPO'       ? 'ATP ok'
+               : linea.estado_atp === 'EN_RIESGO'    ? 'En riesgo'
+               : linea.estado_atp === 'COMPRAR_YA'   ? 'Comprar ya'
+               : linea.estado_atp === 'COMPRAR_PRONTO' ? 'Comprar pronto'
+               : linea.estado_atp === 'NO_COMPRAR_AUN' ? 'No comprar aún'
+               : linea.estado_atp === 'SIN_COBERTURA'  ? 'Sin cobertura'
+               : 'Sin fecha'}
+            </span>
           )}
-        >
-          {estado.label}
-        </span>
+        </div>
       </td>
 
       <td className="px-4 py-3">

@@ -3,7 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Search, X, ChevronLeft, ChevronRight,
   Warehouse, Ship, PackageCheck, PackageOpen, AlertTriangle,
+  Activity, List,
 } from 'lucide-react'
+import { Select } from '@/components/shared/Select'
 import { cn } from '@/lib/utils'
 import { formatFecha, formatDecimal } from '@/lib/utils'
 import { useReservas } from '@/hooks/useInventario'
@@ -15,14 +17,21 @@ import type { Reserva } from '@/types'
 // Badge origen / estado
 // ------------------------------------------------------------------ //
 
-function OrigenBadge({ origen }: { origen: 'BODEGA' | 'TRANSITO' }) {
-  return origen === 'BODEGA' ? (
+function OrigenBadge({ origen }: { origen: 'BODEGA' | 'TRANSITO' | 'FACTURA_RESERVA' }) {
+  if (origen === 'BODEGA') return (
     <span className="inline-flex items-center gap-1 rounded-full bg-semantic-success/10 px-2 py-0.5 text-[11px] font-medium text-semantic-success">
       <Warehouse size={10} strokeWidth={2} />
       Bodega
     </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 rounded-full bg-brand-blue/10 px-2 py-0.5 text-[11px] font-medium text-brand-blue">
+  )
+  if (origen === 'FACTURA_RESERVA') return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-700 dark:bg-purple-500/15 dark:text-purple-300">
+      <Ship size={10} strokeWidth={2} />
+      Fact. Reserva
+    </span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-brand-blue/10 px-2 py-0.5 text-[11px] font-medium text-brand-blue dark:bg-blue-400/10 dark:text-blue-400">
       <Ship size={10} strokeWidth={2} />
       Tránsito
     </span>
@@ -147,6 +156,11 @@ function ReservaRow({ reserva, onLiberar }: ReservaRowProps) {
       {/* OV / Cliente */}
       <td className="px-4 py-3">
         <span className="font-medium text-brand-black dark:text-white">{reserva.numero_ov}</span>
+        {reserva.fecha_documento_ov && (
+          <span className="ml-1.5 text-[10px] text-brand-blue-gray dark:text-white/30">
+            {formatFecha(reserva.fecha_documento_ov)}
+          </span>
+        )}
         {reserva.cliente_nombre && (
           <>
             <br />
@@ -178,11 +192,18 @@ function ReservaRow({ reserva, onLiberar }: ReservaRowProps) {
         </span>
       </td>
 
-      {/* OC (solo tránsito) */}
+      {/* Documento */}
       <td className="px-4 py-3">
         {oc ? (
           <div>
-            <span className="font-medium text-brand-blue text-[12px]">OC {oc.numero_oc}</span>
+            <span className={cn(
+              "font-medium text-[12px]",
+              reserva.origen === 'FACTURA_RESERVA'
+                ? 'text-purple-600 dark:text-purple-400'
+                : 'text-brand-blue dark:text-blue-400'
+            )}>
+              {reserva.origen === 'FACTURA_RESERVA' ? 'F.R.' : 'OC'} {oc.numero_oc}
+            </span>
             <br />
             <span className="text-[11px] text-brand-steel-blue dark:text-white/40">
               {oc.proveedor_nombre.length > 28 ? oc.proveedor_nombre.slice(0, 28) + '…' : oc.proveedor_nombre}
@@ -306,6 +327,9 @@ export default function Reservas() {
   // Stats separadas para ACTIVA (para los cards)
   const { data: statsActivas } = useReservas({ estado: 'ACTIVA', page_size: 1 })
   const { data: statsLiber } = useReservas({ estado: 'LIBERADA', page_size: 1 })
+  const { data: statsBodega } = useReservas({ estado: 'ACTIVA', origen: 'BODEGA', page_size: 1 })
+  const { data: statsTransito } = useReservas({ estado: 'ACTIVA', origen: 'TRANSITO', page_size: 1 })
+  const { data: statsFR } = useReservas({ estado: 'ACTIVA', origen: 'FACTURA_RESERVA', page_size: 1 })
 
   const limpiar = useCallback(() => {
     setBusqueda('')
@@ -319,8 +343,10 @@ export default function Reservas() {
   const liberarMutation = useMutation({
     mutationFn: ({ id, motivo }: { id: number; motivo: string }) => liberarReserva(id, motivo),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['reservas'] })
       setLiberando(null)
+      void queryClient.invalidateQueries({ queryKey: ['reservas'] })
+      void queryClient.invalidateQueries({ queryKey: ['lineas-pendientes'] })
+      void queryClient.invalidateQueries({ queryKey: ['resumen-dashboard'] })
     },
   })
 
@@ -344,7 +370,7 @@ export default function Reservas() {
       </div>
 
       {/* Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatCard
           label="Reservas activas"
           value={(statsActivas?.count ?? '—').toLocaleString('es-CL')}
@@ -352,23 +378,18 @@ export default function Reservas() {
         />
         <StatCard
           label="En bodega"
-          value={
-            data?.results
-              .filter((r) => r.estado === 'ACTIVA' && r.origen === 'BODEGA')
-              .reduce((s, r) => s + Number(r.cantidad), 0)
-              .toLocaleString('es-CL') ?? '—'
-          }
+          value={(statsBodega?.count ?? '—').toLocaleString('es-CL')}
           color="text-semantic-success"
         />
         <StatCard
           label="En tránsito"
-          value={
-            data?.results
-              .filter((r) => r.estado === 'ACTIVA' && r.origen === 'TRANSITO')
-              .reduce((s, r) => s + Number(r.cantidad), 0)
-              .toLocaleString('es-CL') ?? '—'
-          }
-          color="text-brand-blue"
+          value={(statsTransito?.count ?? '—').toLocaleString('es-CL')}
+          color="text-brand-blue dark:text-blue-400"
+        />
+        <StatCard
+          label="Fact. Reserva"
+          value={(statsFR?.count ?? '—').toLocaleString('es-CL')}
+          color="text-purple-600 dark:text-purple-400"
         />
         <StatCard
           label="Liberadas (total)"
@@ -398,36 +419,29 @@ export default function Reservas() {
         </div>
 
         {/* Origen */}
-        <select
+        <Select
           value={origen}
-          onChange={(e) => { setOrigen(e.target.value); setPagina(1) }}
-          className={cn(
-            'h-10 rounded-[10px] border border-brand-alice-blue px-3',
-            'text-[13px] font-medium text-brand-black bg-white',
-            'dark:border-white/10 dark:bg-brand-dark-blue dark:text-white',
-            'cursor-pointer outline-none transition-all duration-400 focus:border-[#73B8EF]'
-          )}
-        >
-          <option value="">Todos los orígenes</option>
-          <option value="BODEGA">Bodega</option>
-          <option value="TRANSITO">Tránsito</option>
-        </select>
+          onChange={(v) => { setOrigen(v); setPagina(1) }}
+          triggerIcon={<PackageOpen size={13} strokeWidth={1.5} />}
+          options={[
+            { value: '',                 label: 'Todos los orígenes' },
+            { value: 'BODEGA',           label: 'Bodega',         icon: <Warehouse size={13} strokeWidth={1.5} /> },
+            { value: 'TRANSITO',         label: 'Tránsito',       icon: <Ship      size={13} strokeWidth={1.5} /> },
+            { value: 'FACTURA_RESERVA',  label: 'Fact. Reserva',  icon: <Ship      size={13} strokeWidth={1.5} /> },
+          ]}
+        />
 
         {/* Estado */}
-        <select
+        <Select
           value={estado}
-          onChange={(e) => { setEstado(e.target.value); setPagina(1) }}
-          className={cn(
-            'h-10 rounded-[10px] border border-brand-alice-blue px-3',
-            'text-[13px] font-medium text-brand-black bg-white',
-            'dark:border-white/10 dark:bg-brand-dark-blue dark:text-white',
-            'cursor-pointer outline-none transition-all duration-400 focus:border-[#73B8EF]'
-          )}
-        >
-          <option value="">Todos los estados</option>
-          <option value="ACTIVA">Activas</option>
-          <option value="LIBERADA">Liberadas</option>
-        </select>
+          onChange={(v) => { setEstado(v); setPagina(1) }}
+          triggerIcon={<Activity size={13} strokeWidth={1.5} />}
+          options={[
+            { value: '',         label: 'Todos los estados' },
+            { value: 'ACTIVA',   label: 'Activas',   dot: '#0FCD0F' },
+            { value: 'LIBERADA', label: 'Liberadas', dot: '#94a3b8' },
+          ]}
+        />
 
         {/* Limpiar */}
         {(busqueda || origen || estado !== 'ACTIVA') && (
@@ -452,20 +466,12 @@ export default function Reservas() {
               {data.count.toLocaleString('es-CL')} reservas
             </span>
           )}
-          <select
-            value={pageSize}
-            onChange={(e) => { setPageSize(Number(e.target.value)); setPagina(1) }}
-            className={cn(
-              'h-10 rounded-[10px] border border-brand-alice-blue px-3',
-              'text-[13px] font-medium text-brand-black bg-white',
-              'dark:border-white/10 dark:bg-brand-dark-blue dark:text-white',
-              'cursor-pointer outline-none transition-all duration-400 focus:border-[#73B8EF]'
-            )}
-          >
-            {PAGE_SIZES.map((s) => (
-              <option key={s} value={s}>{s} / pág.</option>
-            ))}
-          </select>
+          <Select
+            value={String(pageSize)}
+            onChange={(v) => { setPageSize(Number(v)); setPagina(1) }}
+            triggerIcon={<List size={13} strokeWidth={1.5} />}
+            options={PAGE_SIZES.map(s => ({ value: String(s), label: String(s) }))}
+          />
         </div>
       </div>
 
@@ -475,7 +481,7 @@ export default function Reservas() {
           <table className="w-full min-w-[900px] border-collapse text-left text-[13px]">
             <thead>
               <tr className="border-b border-brand-alice-blue dark:border-white/10">
-                {['SKU / Descripción', 'OV / Cliente', 'Bodega', 'Origen', 'Cantidad', 'Orden de Compra', 'Estado', 'Fechas', 'Acción'].map((h) => (
+                {['SKU / Descripción', 'OV / Cliente', 'Bodega', 'Origen', 'Cantidad', 'Documento', 'Estado', 'Fechas', 'Acción'].map((h) => (
                   <th
                     key={h}
                     className="bg-brand-alice-blue/50 px-4 py-3 font-medium text-brand-blue-gray dark:bg-white/5 dark:text-white/50"
