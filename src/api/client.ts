@@ -2,11 +2,13 @@ import axios, { type InternalAxiosRequestConfig } from 'axios'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
+const esNgrok = BASE_URL.includes('ngrok')
+
 const apiClient = axios.create({
   baseURL: BASE_URL,
   headers: {
     'Content-Type': 'application/json',
-    'ngrok-skip-browser-warning': '1',
+    ...(esNgrok && { 'ngrok-skip-browser-warning': '1' }),
   },
 })
 
