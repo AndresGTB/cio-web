@@ -4,12 +4,16 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': '1',
+  },
 })
 
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem('access_token')
-  if (token) {
+  const esEndpointAuth = config.url?.includes('/auth/login/') || config.url?.includes('/auth/refresh/')
+  if (token && !esEndpointAuth) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
